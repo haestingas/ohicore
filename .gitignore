@@ -9,3 +9,7 @@
 .DS_Store
 test/data/*
 
+data/Halpern2012Data.R data/Halpern2013Data.R
+data/layers.Global2013.www2013/**
+data/layers.Global2013.www2013/*
+data

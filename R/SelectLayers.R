@@ -1,71 +1,115 @@
 #' Select a set of layers.
 #' 
 #' @param object instance of Layers class
-#' @param mode {all|target|layers} defines how to select layers
-#' @param target only needed if mode='target', specifies the target (from layers.navigation) which should be selected
-#' @param layers only needed if mode='layers', specifies the layers which should be selected
-#' @param cast {T|F} whether to cast the resulting dataset, or leave it melted, defaults to TRUE
+#' @param target {NULL|character} if not NULL, represents the Target (see 
+#'     description) for which layers should be selected
+#' @param layers {NULL|character} if not NULL, represents the set of layers
+#'     to select
+#' @param alternate.layer.names {NULL|character} if not NULL, represents the 
+#'     names to give to the selected layers
+#' @param join.frame {NULL|data.frame} if not NULL, a data.frame to
+#'     join to the selected layers, join will be performed on columns which
+#'     exist in both the selected layers and the join.frame
+#' @param cast {T|F} whether to cast the resulting dataset, or leave it melted, 
+#'     defaults to TRUE
+#' @param hold.cast {NULL|character} if not NULL, a set of columns which 
+#'     should not be casted. Only relevant if cast = T
+#' @param expand.time.invariant {T|F} should layers that do not have time 
+#'     information be expanded
 #' @return data.frame with data from selected layers
 #' @export
-SelectLayers = function (object, mode = "all", cast = T,
-                         target = NULL, layers = NULL,
-                         expand.time.invariant = F,
-                         alternate.layer.names = NULL) {
-    if (mode == "layers") {
+SelectLayers = function (object, target = NULL, layers = NULL,
+                         alternate.layer.names = NULL, join.frame = NULL,
+                         cast = T, hold.cast = NULL
+                         ) {
+
+    if (!is.null(layers)) {
         focus.data = plyr::rbind.fill(
-            object$layer.data[object$layers.navigation$layer_id %in% layers]
+            object$layer.data[object$GetLayerNames() %in% layers]
         )
-    } else if (mode == "target") {
+    } else if (!is.null(target)) {
         focus.data = plyr::rbind.fill(
             object$layer.data[object$layers.navigation$target == target]
         )
-    } else if (mode == "all") {
+    } else {
+        print ('bad R')
         focus.data = plyr::rbind.fill(
             object$layer.data
         )
-    } else {
-        stop ("mode not understood")
     }
+    
     if (cast) {
-        stationary.columns = which(names(focus.data) %in% 
-            c('value', 'layer.id'))
-        formula.text = paste(
-            paste(names(focus.data)[-stationary.columns], 
-            collapse = '+'), '~layer.id')
-            
+    
+    
+    
 
-        recasted.data = reshape2::dcast(focus.data, as.formula(formula.text),
-            value.var = 'value', fun.aggregate=mean)
+        subnav = object$layers.navigation[object$GetLayerNames() %in% layers, ]
+        
+        cast.spatials = unique(c(
+            as.character(subnav$fld_id_num[subnav$fld_id_num != '']),
+            as.character(subnav$fld_id_chr[subnav$fld_id_chr != ''])
+        ))
+        
+        
+        
+        cast.times = unique(
+            as.character(subnav$fld_year[subnav$fld_year != ''])
+        )
+        
+        cast.category = unique(
+            as.character(subnav$fld_category[subnav$fld_category != ''])
+        )
+        
+        cast.values = unique(c(
+            as.character(subnav$fld_val_num[subnav$fld_val_num != '']),
+            as.character(subnav$fld_val_chr[subnav$fld_val_chr != ''])
+        ))
 
-        if (expand.time.invariant) {
-            ti.logical = plyr::ldply(recasted.data[, layers], function(X) {
-                Reduce('|', !is.na(recasted.data$year) & !is.nan(X))
-            })
-            
-            spatial = names(recasted.data)[-which(names(recasted.data) %in% 
-                c('year', layers))]
-            time.invariants = ti.logical$.id[!ti.logical$V1]
 
-            base = recasted.data[!is.na(recasted.data$year),
-                -which(names(recasted.data) %in% time.invariants)]
+        left.terms = c(cast.spatials, cast.times)
+        right.terms = c('layer_id', cast.category)
+        
+        cast.formula = as.formula(paste(
+            paste(c(left.terms, hold.cast), collapse = ' + '),
+            paste(right.terms[which(!right.terms %in% hold.cast)], collapse = ' + '),
+            sep = ' ~ '
+        ))
 
-            for (TI in time.invariants) {
-                base = plyr::join(base, 
-                    recasted.data[!is.nan(recasted.data[,TI]), c(spatial, TI)],
-                    by = spatial)
-            }
-
-            recasted.data = base
-
-        }
-
+        names(focus.data) = gsub(paste(cast.values, collapse='|'), 
+                                 'value', 
+                                 names(focus.data))
+        
+        
+        focus.data$reduced.value = Reduce('+', 
+            replace(focus.data[, which(names(focus.data) == 'value')],
+            is.na(focus.data[, which(names(focus.data) == 'value')]),
+            0
+            ))
+        
+        recasted.data = reshape2::dcast(focus.data, cast.formula,
+            value.var = 'reduced.value')
+        
         if (!is.null(alternate.layer.names)) {
             names(recasted.data)[names(recasted.data) %in% layers] = alternate.layer.names
         }
-
+        
+        
+        if (!is.null(join.frame)) {
+        
+            join.on = names(recasted.data)[which(names(recasted.data) %in% names(join.frame))]
+            return (plyr::join(recasted.data, join.frame, by=join.on))
+            
+        }
+        
         return (recasted.data)
 
     } else {
+
+        if (!is.null(join.frame)) {
+            join.on = names(focus.data)[which(names(focus.data) %in% names(join.frame))]
+            return (plyr::join(focus.data, join.frame, by=join.on))
+        }
+
         return (focus.data)
     }
 }
