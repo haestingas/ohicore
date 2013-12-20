@@ -86,7 +86,9 @@ ExpandTimeInvariant = function (d, fill=T, by.spatial=T,
         }
     }
 
-    return (ifelse(is.null(top.level.by),
-                   MasterFun(d),
-                   plyr::ddply(d, top.level.by, MasterFun)))
+    if (is.null(top.level.by)) {
+        return (MasterFun(d))
+    } else {
+        return (plyr::ddply(d, top.level.by, MasterFun))
+    }
 }
